@@ -19,6 +19,19 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	mux.HandleFunc("POST /publish/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		msg := fmt.Sprintf("Hello %s", id)
+
+		if err := sse.Publish(id, msg); err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, "failed to publish event")
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+
 	port := 3020
 	slog.Info("starting server", "port", port)
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), mux); err != nil {

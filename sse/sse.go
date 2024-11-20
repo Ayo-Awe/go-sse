@@ -1,11 +1,14 @@
 package sse
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+)
 
-	"github.com/google/uuid"
+var (
+	ErrConnNotFound = errors.New("sse connection not found")
 )
 
 // An active SSE connection
@@ -25,11 +28,13 @@ func New() *SSEManager {
 	}
 }
 
-func NewConn() *sseConn {
+// creates a new connection with id, if there's an existing connection with the same id,
+// it is overwritten with the new one
+func newConn(id string) *sseConn {
 	c := make(chan string, 1)
 	return &sseConn{
 		c:  c,
-		id: uuid.New().String(),
+		id: id,
 	}
 }
 
@@ -48,15 +53,27 @@ func (s *SSEManager) Broadcast(data string) {
 	}
 }
 
-// Satisfies http.Handler interface
-func (s SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.WriteHeader(http.StatusOK)
+// publishes an event to a specific connection
+func (s *SSEManager) Publish(id, data string) error {
+	conn, ok := s.conns[id]
+	if !ok || conn == nil {
+		return ErrConnNotFound
+	}
 
-	conn := NewConn()
-	s.addConn(conn)
+	conn.c <- data
+	return nil
+}
+
+// satisfies http.Handler interface
+func (s SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, "Usage: /sse?id=<client_identifier>\n")
+		return
+	}
+
+	conn := s.setupSSEConn(w, id)
 
 	for {
 		select {
@@ -69,4 +86,16 @@ func (s SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func (s *SSEManager) setupSSEConn(w http.ResponseWriter, id string) *sseConn {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+
+	conn := newConn(id)
+	s.addConn(conn)
+
+	return conn
 }
