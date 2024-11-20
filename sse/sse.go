@@ -1,79 +1,111 @@
 package sse
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+
+	"github.com/google/uuid"
 )
 
 var (
-	ErrConnNotFound = errors.New("sse connection not found")
+	ErrClientNotFound = errors.New("sse connection not found")
 )
 
 // An active SSE connection
 type sseConn struct {
-	c  chan string
-	id string
+	c        chan string
+	clientID string
+	connID   string // uniquely identifies an sseConnection
 }
 
-type SSEManager struct {
+type sseClient struct {
+	id    string
 	conns map[string]*sseConn
 }
 
+type SSEManager struct {
+	clients map[string]*sseClient
+}
+
+// Constructor functions
+
 func New() *SSEManager {
-	conns := make(map[string]*sseConn)
+	clients := make(map[string]*sseClient)
 	return &SSEManager{
-		conns: conns,
+		clients: clients,
 	}
 }
 
-// creates a new connection with id, if there's an existing connection with the same id,
-// it is overwritten with the new one
-func newConn(id string) *sseConn {
+func newClient(id string) *sseClient {
+	conns := make(map[string]*sseConn)
+	return &sseClient{conns: conns, id: id}
+}
+
+func newConn(clientID string) *sseConn {
 	c := make(chan string, 1)
 	return &sseConn{
-		c:  c,
-		id: id,
+		c:        c,
+		clientID: clientID,
+		connID:   uuid.NewString(),
 	}
 }
 
-func (s *SSEManager) addConn(conn *sseConn) {
-	s.conns[conn.id] = conn
+// sseClient methods
+func (c *sseClient) newConn() *sseConn {
+	conn := newConn(c.id)
+	c.conns[conn.connID] = conn
+	return conn
 }
 
-func (s *SSEManager) removeConn(conn *sseConn) {
-	delete(s.conns, conn.id)
+func (c *sseClient) removeConn(conn *sseConn) {
+	delete(c.conns, conn.connID)
 }
 
-// publishes an event to all connections
+// SSEManager methods
 func (s *SSEManager) Broadcast(data string) {
-	for _, conn := range s.conns {
+	for clientID := range s.clients {
+		s.Publish(clientID, data)
+	}
+}
+
+func (s *SSEManager) newConn(clientID string) *sseConn {
+	client, ok := s.clients[clientID]
+	if !ok {
+		client = newClient(clientID)
+	}
+
+	s.clients[clientID] = client
+	return client.newConn()
+}
+
+func (s *SSEManager) Publish(clientID, data string) error {
+	client, ok := s.clients[clientID]
+	if !ok || client == nil {
+		return ErrClientNotFound
+	}
+
+	// send data to all client connections
+	for _, conn := range client.conns {
 		conn.c <- data
 	}
-}
 
-// publishes an event to a specific connection
-func (s *SSEManager) Publish(id, data string) error {
-	conn, ok := s.conns[id]
-	if !ok || conn == nil {
-		return ErrConnNotFound
-	}
-
-	conn.c <- data
 	return nil
 }
 
-// satisfies http.Handler interface
-func (s SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("id")
-	if id == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprint(w, "Usage: /sse?id=<client_identifier>\n")
+func (s *SSEManager) removeConn(conn *sseConn) {
+	client, ok := s.clients[conn.clientID]
+	if !ok {
 		return
 	}
 
-	conn := s.setupSSEConn(w, id)
+	client.removeConn(conn)
+}
+
+func (s SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	conn := s.setupSSEConn(w, r)
 
 	for {
 		select {
@@ -88,14 +120,14 @@ func (s SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *SSEManager) setupSSEConn(w http.ResponseWriter, id string) *sseConn {
+func (s *SSEManager) setupSSEConn(w http.ResponseWriter, r *http.Request) *sseConn {
+	// clients can specify their id else a new client id is created
+	clientID := cmp.Or(r.URL.Query().Get("id"), uuid.NewString())
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
 
-	conn := newConn(id)
-	s.addConn(conn)
-
-	return conn
+	return s.newConn(clientID)
 }
