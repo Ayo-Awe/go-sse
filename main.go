@@ -4,31 +4,20 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
+
+	"github.com/awe-ayo/go-sse/sse"
 )
 
-func handleSSE(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.WriteHeader(http.StatusOK)
-
-	ticker := time.NewTicker(1 * time.Second)
-	for {
-		select {
-		case currentTime := <-ticker.C:
-			fmt.Fprintf(w, "data: %s\n", currentTime.String())
-			w.(http.Flusher).Flush()
-		case <-r.Context().Done():
-			slog.Info("client disconnected")
-			return
-		}
-	}
-}
-
 func main() {
+	sse := sse.New()
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("/sse", handleSSE)
+	mux.Handle("/sse", sse)
+
+	mux.HandleFunc("POST /broadcast", func(w http.ResponseWriter, r *http.Request) {
+		sse.Broadcast("Hello World")
+		w.WriteHeader(http.StatusOK)
+	})
 
 	port := 3020
 	slog.Info("starting server", "port", port)
