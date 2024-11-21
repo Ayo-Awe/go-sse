@@ -70,3 +70,8 @@ The SSEManager has a `Broadcast` method that can be used to send a message to al
 
 - Add graceful shutdown
 - Make the SSEManager thread-safe
+
+# Limitations
+
+- Connections are maintained in memory and are not persisted between restarts.
+- Not suitable for multiple instances of the server.
