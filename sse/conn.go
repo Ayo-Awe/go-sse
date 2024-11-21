@@ -9,7 +9,7 @@ type sseConn struct {
 	connID   string
 }
 
-// Creates a new SSE connection for a given client
+// creates a new SSE connection for a given client
 func newConn(clientID string) *sseConn {
 	return &sseConn{
 		c:        make(chan string, 1),

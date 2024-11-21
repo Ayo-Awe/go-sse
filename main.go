@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/awe-ayo/go-sse/sse"
 )
@@ -14,12 +15,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/sse", sse)
 
-	mux.HandleFunc("POST /broadcast", func(w http.ResponseWriter, r *http.Request) {
-		sse.Broadcast("Hello World")
-		w.WriteHeader(http.StatusOK)
-	})
-
-	mux.HandleFunc("POST /publish/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /ping/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		msg := fmt.Sprintf("Hello %s", id)
 
@@ -31,6 +27,13 @@ func main() {
 
 		w.WriteHeader(http.StatusOK)
 	})
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		for currentTime := range ticker.C {
+			sse.Broadcast(currentTime.Format(time.DateTime))
+		}
+	}()
 
 	port := 3020
 	slog.Info("starting server", "port", port)

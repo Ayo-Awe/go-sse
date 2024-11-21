@@ -16,16 +16,18 @@ var (
 // Manages all active SSE clients and connections
 type SSEManager struct {
 	clients map[string]*sseClient
+	logger  *slog.Logger
 }
 
 // Creates a new SSEManager
 func New() *SSEManager {
 	return &SSEManager{
 		clients: make(map[string]*sseClient),
+		logger:  slog.Default(),
 	}
 }
 
-// creates a new connection for a given client ID
+// wrapper around sseClient.newConn
 func (s *SSEManager) newConn(clientID string) *sseConn {
 	client, ok := s.clients[clientID]
 	if !ok {
@@ -35,7 +37,7 @@ func (s *SSEManager) newConn(clientID string) *sseConn {
 	return client.newConn()
 }
 
-// removes a connection from the manager
+// wrapper around sseClient.removeConn
 func (s *SSEManager) removeConn(conn *sseConn) {
 	client, ok := s.clients[conn.clientID]
 	if !ok {
@@ -65,17 +67,19 @@ func (s *SSEManager) Publish(clientID, data string) error {
 	return nil
 }
 
-// atisfies the http.Handler interface for SSEManager
+// satisfies the http.Handler interface for SSEManager
 func (s SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn := s.setupSSEConn(w, r)
+
+	s.logger.Info("client connected", "clientID", conn.clientID)
 
 	for {
 		select {
 		case data := <-conn.c:
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			fmt.Fprintf(w, "data: %s\n", data)
 			w.(http.Flusher).Flush()
 		case <-r.Context().Done():
-			slog.Info("client disconnected", "clientID", conn.clientID)
+			s.logger.Info("client disconnected", "clientID", conn.clientID)
 			s.removeConn(conn)
 			return
 		}
