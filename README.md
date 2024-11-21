@@ -65,3 +65,8 @@ The SSEManager has a `Broadcast` method that can be used to send a message to al
 ## Notes
 
 - Multiple connections for the same client ID will all receive the same messages.
+
+## Future Work
+
+- Add graceful shutdown
+- Make the SSEManager thread-safe
