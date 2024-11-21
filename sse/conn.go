@@ -9,6 +9,10 @@ type sseConn struct {
 	connID   string
 }
 
+func (s *sseConn) close() {
+	close(s.c)
+}
+
 // creates a new SSE connection for a given client
 func newConn(clientID string) *sseConn {
 	return &sseConn{
